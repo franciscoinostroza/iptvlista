@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import channelRoutes, { setData } from './routes/channels'
 import { loadFromPath } from './services/parser'
+import type { Channel } from './types/channel'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3000', 10)
@@ -19,8 +20,29 @@ async function autoLoadPlaylist() {
   if (fs.existsSync(playlistPath)) {
     try {
       const result = await loadFromPath(playlistPath)
+      const tnChannel: Channel = {
+        id: result.channels.length,
+        name: 'TN (Todo Noticias)',
+        url: '/api/stream/tn.m3u8',
+        duration: -1,
+        tvgId: 'TN.ar',
+        tvgName: 'TN',
+        tvgLogo: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/TN_todo_noticias_logo.svg',
+        tvgLanguage: 'Spanish',
+        tvgCountry: 'AR',
+        groupTitle: 'Noticias',
+        quality: '720p',
+        radio: false,
+      }
+      result.channels.push(tnChannel)
+      if (!result.categories.includes('Noticias')) {
+        result.categories.push('Noticias')
+        result.categories.sort()
+      }
+      result.stats.total++
+      result.stats.tv++
       setData(result)
-      console.log(`Lista auto-cargada: ${result.stats.total} canales`)
+      console.log(`Lista auto-cargada: ${result.stats.total} canales (incluye TN)`)
     } catch (err: any) {
       console.log('No se pudo auto-cargar la lista:', err.message)
     }

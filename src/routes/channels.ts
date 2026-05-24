@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express'
+import { execSync } from 'child_process'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
 import { loadFromUrl, loadFromPath } from '../services/parser'
 
@@ -151,11 +152,29 @@ router.get('/stats', (_req: Request, res: Response) => {
   res.json(data.stats)
 })
 
+// GET /api/stream/tn.m3u8 - Obtener M3U8 fresca de TN vía YouTube
+router.get('/stream/tn.m3u8', async (_req: Request, res: Response) => {
+  try {
+    const url = execSync(
+      './yt-dlp -g "https://www.youtube.com/watch?v=cb12KmMMDJA"',
+      { timeout: 15000, encoding: 'utf-8' }
+    ).trim()
+    if (!url || !url.includes('.m3u8')) {
+      return res.status(502).type('text/plain').send('# Error: No se pudo obtener el stream de TN')
+    }
+    res.redirect(302, url)
+  } catch (err: any) {
+    res.status(502).type('text/plain').send(`# Error obteniendo TN: ${err.message}`)
+  }
+})
+
 // GET /api/playlist.m3u8 - Servir canales como lista M3U8 para reproductor
-router.get('/playlist.m3u8', (_req: Request, res: Response) => {
+router.get('/playlist.m3u8', (req: Request, res: Response) => {
   if (!data) {
     return res.status(400).type('text/plain').send('# No hay lista cargada')
   }
+
+  const baseUrl = `${req.protocol}://${req.get('host')}`
 
   let output = '#EXTM3U\n'
   for (const ch of data.channels) {
@@ -169,7 +188,8 @@ router.get('/playlist.m3u8', (_req: Request, res: Response) => {
     if (ch.radio) attrs.push(`radio="true"`)
     const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
     output += `#EXTINF:${ch.duration}${attrStr},${ch.name}\n`
-    output += `${ch.url}\n`
+    const finalUrl = ch.url.startsWith('/') ? `${baseUrl}${ch.url}` : ch.url
+    output += `${finalUrl}\n`
   }
 
   res.set('Content-Type', 'application/x-mpegurl')
