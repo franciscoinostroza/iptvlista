@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express'
-import ytdl from '@distube/ytdl-core'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
 import { loadFromUrl, loadFromPath } from '../services/parser'
 
@@ -155,21 +154,18 @@ router.get('/stats', (_req: Request, res: Response) => {
 // GET /api/stream/tn.m3u8 - Obtener M3U8 fresca de TN vía YouTube
 router.get('/stream/tn.m3u8', async (_req: Request, res: Response) => {
   try {
-    const info = await ytdl.getInfo('https://www.youtube.com/watch?v=cb12KmMMDJA', {
-      requestOptions: {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-          'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
-        },
-      },
-    })
-    const format = info.formats
-      .filter((f: any) => f.hasVideo && f.hasAudio && f.url.includes('.m3u8'))
-      .sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))[0]
-    if (!format?.url) {
+    const { Innertube } = await import('youtubei.js' as any)
+    const yt = await Innertube.create({ lang: 'es' })
+    const info = await yt.getInfo('cb12KmMMDJA')
+    const stream = info.chooseFormat({ type: 'video+audio', quality: 'best' })
+    if (!stream || !stream.url) {
       return res.status(502).type('text/plain').send('# Error: No se pudo obtener el stream de TN')
     }
-    res.redirect(302, format.url)
+    const m3u8Url = stream.url.includes('googlevideo.com') ? stream.url : info.streaming_data?.hls_manifest_url
+    if (!m3u8Url) {
+      return res.status(502).type('text/plain').send('# Error: No se encontró URL HLS para TN')
+    }
+    res.redirect(302, m3u8Url)
   } catch (err: any) {
     res.status(502).type('text/plain').send(`# Error obteniendo TN: ${err.message}`)
   }
