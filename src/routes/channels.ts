@@ -151,4 +151,30 @@ router.get('/stats', (_req: Request, res: Response) => {
   res.json(data.stats)
 })
 
+// GET /api/playlist.m3u8 - Servir canales como lista M3U8 para reproductor
+router.get('/playlist.m3u8', (_req: Request, res: Response) => {
+  if (!data) {
+    return res.status(400).type('text/plain').send('# No hay lista cargada')
+  }
+
+  let output = '#EXTM3U\n'
+  for (const ch of data.channels) {
+    const attrs: string[] = []
+    if (ch.tvgId) attrs.push(`tvg-id="${ch.tvgId}"`)
+    if (ch.tvgName) attrs.push(`tvg-name="${ch.tvgName}"`)
+    if (ch.tvgLogo) attrs.push(`tvg-logo="${ch.tvgLogo}"`)
+    if (ch.groupTitle) attrs.push(`group-title="${ch.groupTitle}"`)
+    if (ch.tvgLanguage) attrs.push(`tvg-language="${ch.tvgLanguage}"`)
+    if (ch.tvgCountry) attrs.push(`tvg-country="${ch.tvgCountry}"`)
+    if (ch.radio) attrs.push(`radio="true"`)
+    const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
+    output += `#EXTINF:${ch.duration}${attrStr},${ch.name}\n`
+    output += `${ch.url}\n`
+  }
+
+  res.set('Content-Type', 'application/x-mpegurl')
+  res.set('Content-Disposition', 'inline; filename="playlist.m3u8"')
+  res.send(output)
+})
+
 export default router

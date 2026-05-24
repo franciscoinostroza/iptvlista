@@ -23,6 +23,8 @@ const prevBtn = $('prevBtn')
 const nextBtn = $('nextBtn')
 const pageInfo = $('pageInfo')
 const toast = $('toast')
+const m3u8Bar = $('m3u8Bar')
+const m3u8Url = $('m3u8Url')
 const status = $('status')
 
 let toastTimeout
@@ -103,6 +105,23 @@ function updateStats() {
   $('statCat').textContent = state.stats.categories
   statsContainer.style.display = 'grid'
   filtersContainer.style.display = 'flex'
+
+  const url = location.origin + '/api/playlist.m3u8'
+  m3u8Url.textContent = url
+  m3u8Bar.style.display = 'block'
+}
+
+function copyM3u8Url() {
+  const text = m3u8Url.textContent
+  navigator.clipboard.writeText(text).then(() => showToast('URL copiada')).catch(() => {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    showToast('URL copiada')
+  })
 }
 
 async function fetchChannels() {
