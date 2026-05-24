@@ -155,7 +155,14 @@ router.get('/stats', (_req: Request, res: Response) => {
 // GET /api/stream/tn.m3u8 - Obtener M3U8 fresca de TN vía YouTube
 router.get('/stream/tn.m3u8', async (_req: Request, res: Response) => {
   try {
-    const info = await ytdl.getInfo('https://www.youtube.com/watch?v=cb12KmMMDJA')
+    const info = await ytdl.getInfo('https://www.youtube.com/watch?v=cb12KmMMDJA', {
+      requestOptions: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+          'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+        },
+      },
+    })
     const format = info.formats
       .filter((f: any) => f.hasVideo && f.hasAudio && f.url.includes('.m3u8'))
       .sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))[0]
