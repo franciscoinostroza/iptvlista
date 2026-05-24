@@ -4,6 +4,10 @@ import { loadFromUrl, loadFromPath } from '../services/parser'
 
 let data: M3u8ParseResult | null = null
 
+export function setData(newData: M3u8ParseResult) {
+  data = newData
+}
+
 const router = Router()
 
 // POST /api/load - Cargar lista desde URL o archivo local

@@ -145,14 +145,28 @@ function renderChannels(items) {
           ${ch.groupTitle ? '<span>' + escapeHtml(ch.groupTitle) + '</span>' : ''}
           ${ch.quality ? '<span>' + escapeHtml(ch.quality) + '</span>' : ''}
           ${ch.tvgLanguage ? '<span>' + escapeHtml(ch.tvgLanguage) + '</span>' : ''}
-          ${ch.radio ? '<span>📻 Radio</span>' : ''}
+          ${ch.radio ? '<span>Radio</span>' : ''}
         </div>
+        <div class="channel-url" onclick="copyUrl(this)" title="Copiar URL">${escapeHtml(ch.url)}</div>
       </div>
       <a class="play-btn" href="${escapeHtml(ch.url)}" target="_blank">▶ Abrir</a>
     </div>
   `
     )
     .join('')
+}
+
+function copyUrl(el) {
+  const text = el.textContent
+  navigator.clipboard.writeText(text).then(() => showToast('URL copiada')).catch(() => {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    showToast('URL copiada')
+  })
 }
 
 function renderPagination(data) {
@@ -212,4 +226,18 @@ nextBtn.addEventListener('click', () => {
   }
 })
 
-// Iniciar sin datos - el usuario carga su lista
+// Auto-cargar si el servidor ya tiene datos
+async function init() {
+  try {
+    const res = await fetch('/api/stats')
+    if (res.ok) {
+      const stats = await res.json()
+      state.stats = stats
+      await loadCategories()
+      updateStats()
+      status.textContent = '· ' + stats.total + ' canales'
+      await fetchChannels()
+    }
+  } catch (_) {}
+}
+init()
