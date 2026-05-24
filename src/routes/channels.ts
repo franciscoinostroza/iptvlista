@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { execSync } from 'child_process'
+import ytdl from '@distube/ytdl-core'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
 import { loadFromUrl, loadFromPath } from '../services/parser'
 
@@ -155,14 +155,14 @@ router.get('/stats', (_req: Request, res: Response) => {
 // GET /api/stream/tn.m3u8 - Obtener M3U8 fresca de TN vía YouTube
 router.get('/stream/tn.m3u8', async (_req: Request, res: Response) => {
   try {
-    const url = execSync(
-      './yt-dlp -g "https://www.youtube.com/watch?v=cb12KmMMDJA"',
-      { timeout: 15000, encoding: 'utf-8' }
-    ).trim()
-    if (!url || !url.includes('.m3u8')) {
+    const info = await ytdl.getInfo('https://www.youtube.com/watch?v=cb12KmMMDJA')
+    const format = info.formats
+      .filter((f: any) => f.hasVideo && f.hasAudio && f.url.includes('.m3u8'))
+      .sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0))[0]
+    if (!format?.url) {
       return res.status(502).type('text/plain').send('# Error: No se pudo obtener el stream de TN')
     }
-    res.redirect(302, url)
+    res.redirect(302, format.url)
   } catch (err: any) {
     res.status(502).type('text/plain').send(`# Error obteniendo TN: ${err.message}`)
   }

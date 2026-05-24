@@ -41,6 +41,7 @@ async function autoLoadPlaylist() {
       }
       result.stats.total++
       result.stats.tv++
+      result.stats.categories = result.categories.length
       setData(result)
       console.log(`Lista auto-cargada: ${result.stats.total} canales (incluye TN)`)
     } catch (err: any) {
