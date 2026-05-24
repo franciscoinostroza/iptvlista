@@ -157,15 +157,19 @@ router.get('/stream/tn.m3u8', async (_req: Request, res: Response) => {
     const { Innertube } = await import('youtubei.js' as any)
     const yt = await Innertube.create({ lang: 'es' })
     const info = await yt.getInfo('cb12KmMMDJA')
-    const stream = info.chooseFormat({ type: 'video+audio', quality: 'best' })
-    if (!stream || !stream.url) {
-      return res.status(502).type('text/plain').send('# Error: No se pudo obtener el stream de TN')
+
+    if (info.streaming_data?.hls_manifest_url) {
+      return res.redirect(302, info.streaming_data.hls_manifest_url)
     }
-    const m3u8Url = stream.url.includes('googlevideo.com') ? stream.url : info.streaming_data?.hls_manifest_url
-    if (!m3u8Url) {
-      return res.status(502).type('text/plain').send('# Error: No se encontró URL HLS para TN')
+
+    const formats = info.streaming_data?.formats || []
+    for (const f of formats) {
+      if (f.url && f.mime_type?.includes('mp4')) {
+        return res.redirect(302, f.url)
+      }
     }
-    res.redirect(302, m3u8Url)
+
+    return res.status(502).type('text/plain').send('# Error: No se encontró URL de stream para TN')
   } catch (err: any) {
     res.status(502).type('text/plain').send(`# Error obteniendo TN: ${err.message}`)
   }
