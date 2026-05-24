@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPTV Lista</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 16px; }
+    h1 {
+      font-size: 1.5rem;
+      color: #fff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h1 small { font-size: 0.8rem; color: #888; font-weight: normal; }
+
+    .card {
+      background: #1a1a2e;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border: 1px solid #2a2a4a;
+    }
+
+    .load-form { display: flex; gap: 8px; flex-wrap: wrap; }
+    .load-form input {
+      flex: 1;
+      min-width: 200px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #0f0f1a;
+      color: #fff;
+      font-size: 1rem;
+    }
+    .load-form input::placeholder { color: #666; }
+    .load-form button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      background: #4f46e5;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .load-form button:active { transform: scale(0.97); }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .stat-item {
+      background: #1a1a2e;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      border: 1px solid #2a2a4a;
+    }
+    .stat-item .num { font-size: 1.4rem; font-weight: bold; color: #818cf8; }
+    .stat-item .label { font-size: 0.75rem; color: #888; margin-top: 2px; }
+
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .filters input, .filters select {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #0f0f1a;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+    .filters input { flex: 1; min-width: 150px; }
+    .filters select { min-width: 120px; }
+
+    .channels { display: flex; flex-direction: column; gap: 8px; }
+    .channel {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      padding: 10px 14px;
+      border: 1px solid #2a2a4a;
+      transition: border-color 0.2s;
+    }
+    .channel:active { border-color: #4f46e5; }
+    .channel img {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      object-fit: contain;
+      background: #0f0f1a;
+      flex-shrink: 0;
+    }
+    .channel-info { flex: 1; min-width: 0; }
+    .channel-name {
+      font-size: 0.95rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .channel-meta {
+      font-size: 0.75rem;
+      color: #888;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .channel-meta span { background: #2a2a4a; padding: 1px 6px; border-radius: 4px; }
+    .channel .play-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: none;
+      background: #22c55e;
+      color: #fff;
+      font-size: 0.85rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      text-decoration: none;
+      text-align: center;
+    }
+    .channel .play-btn:active { opacity: 0.8; }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .pagination button {
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1a1a2e;
+      color: #fff;
+      cursor: pointer;
+    }
+    .pagination button:disabled { opacity: 0.3; }
+    .pagination button:active:not(:disabled) { background: #2a2a4a; }
+    .pagination span { font-size: 0.9rem; color: #888; }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .error {
+      background: #3b1a1a;
+      border: 1px solid #5c2a2a;
+      color: #ff6b6b;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .empty {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1a2e;
+      border: 1px solid #4f46e5;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+      z-index: 100;
+    }
+
+    @media (max-width: 600px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .load-form input { min-width: 100%; }
+      .load-form button { width: 100%; }
+      .channel img { width: 32px; height: 32px; }
+      .channel .play-btn { padding: 6px 10px; font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>IPTV Lista <small id="status">sin datos</small></h1>
+
+    <div class="card">
+      <div class="load-form">
+        <input type="text" id="urlInput" placeholder="URL o ruta local de lista M3U8..." />
+        <button id="loadBtn">Cargar</button>
+      </div>
+      <div style="margin-top:8px;font-size:0.8rem;color:#666;">
+        Ej: https://ejemplo.com/lista.m3u8  o  /ruta/local/archivo.m3u8
+      </div>
+    </div>
+
+    <div id="statsContainer" class="stats" style="display:none;">
+      <div class="stat-item"><div class="num" id="statTotal">0</div><div class="label">Canales</div></div>
+      <div class="stat-item"><div class="num" id="statTv">0</div><div class="label">TV</div></div>
+      <div class="stat-item"><div class="num" id="statRadio">0</div><div class="label">Radio</div></div>
+      <div class="stat-item"><div class="num" id="statCat">0</div><div class="label">Categorías</div></div>
+    </div>
+
+    <div id="errorBox" class="error" style="display:none;"></div>
+
+    <div class="filters" id="filtersContainer" style="display:none;">
+      <input type="text" id="searchInput" placeholder="Buscar canal..." />
+      <select id="categoryFilter"><option value="">Todas</option></select>
+    </div>
+
+    <div id="channelsContainer" class="channels"></div>
+
+    <div id="pagination" class="pagination" style="display:none;">
+      <button id="prevBtn">← Anterior</button>
+      <span id="pageInfo"></span>
+      <button id="nextBtn">Siguiente →</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
