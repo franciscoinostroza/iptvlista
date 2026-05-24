@@ -8,6 +8,10 @@ export function setData(newData: M3u8ParseResult) {
   data = newData
 }
 
+export function getData(): M3u8ParseResult | null {
+  return data
+}
+
 const router = Router()
 
 // POST /api/load - Cargar lista desde URL o archivo local
@@ -149,30 +153,6 @@ router.get('/stats', (_req: Request, res: Response) => {
   }
 
   res.json(data.stats)
-})
-
-// GET /api/stream/tn.m3u8 - Obtener M3U8 fresca de TN vía YouTube
-router.get('/stream/tn.m3u8', async (_req: Request, res: Response) => {
-  try {
-    const { Innertube } = await import('youtubei.js' as any)
-    const yt = await Innertube.create({ lang: 'es' })
-    const info = await yt.getInfo('cb12KmMMDJA')
-
-    if (info.streaming_data?.hls_manifest_url) {
-      return res.redirect(302, info.streaming_data.hls_manifest_url)
-    }
-
-    const formats = info.streaming_data?.formats || []
-    for (const f of formats) {
-      if (f.url && f.mime_type?.includes('mp4')) {
-        return res.redirect(302, f.url)
-      }
-    }
-
-    return res.status(502).type('text/plain').send('# Error: No se encontró URL de stream para TN')
-  } catch (err: any) {
-    res.status(502).type('text/plain').send(`# Error obteniendo TN: ${err.message}`)
-  }
 })
 
 // GET /api/playlist.m3u8 - Servir canales como lista M3U8 para reproductor
