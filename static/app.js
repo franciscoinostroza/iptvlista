@@ -159,6 +159,10 @@ function openPlayer(name, url) {
     url = location.origin + url
   }
 
+  if (location.protocol === 'https:' && url.startsWith('http:')) {
+    url = '/api/proxy?url=' + encodeURIComponent(url)
+  }
+
   playerChannelName.textContent = name
   playerOverlay.classList.add('active')
   playerStatus.textContent = 'Iniciando stream...'

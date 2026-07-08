@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express'
 import fs from 'fs'
+import http from 'http'
+import https from 'https'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
 import { loadFromUrl, loadFromPath } from '../services/parser'
 
@@ -323,6 +325,78 @@ router.get('/playlist.m3u8', (req: Request, res: Response) => {
   res.set('Content-Type', 'application/x-mpegurl')
   res.set('Content-Disposition', 'attachment; filename="playlist.m3u8"')
   res.send(output)
+})
+
+const PLAYLIST_CT = /mpegurl|m3u8|vnd\.apple\.mpegurl/i
+
+function resolveUrl(raw: string, baseDir: string): string {
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+  if (raw.startsWith('//')) return 'https:' + raw
+  if (raw.startsWith('/')) return new URL(raw, baseDir).origin + raw
+  return new URL(raw, baseDir).href
+}
+
+function rewriteM3u8(content: string, baseDir: string, proxyPrefix: string): string {
+  let r = content.replace(/^([^#\r\n].*)$/gm, (_, line: string) => {
+    const u = line.trim()
+    if (!u) return line
+    return proxyPrefix + encodeURIComponent(resolveUrl(u, baseDir))
+  })
+  r = r.replace(/URI="([^"]*)"/g, (_, uri: string) => {
+    return `URI="${proxyPrefix}${encodeURIComponent(resolveUrl(uri, baseDir))}"`
+  })
+  return r
+}
+
+router.get('/proxy', (req: Request, res: Response) => {
+  const url = req.query.url as string
+  if (!url) {
+    return res.status(400).json({ error: 'url parameter required' })
+  }
+
+  const proto = url.startsWith('https') ? https : http
+  const parsed = new URL(url)
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': '*/*',
+  }
+  if (req.headers.range) headers['Range'] = req.headers.range as string
+
+  const opts = { hostname: parsed.hostname, port: parsed.port, path: parsed.pathname + parsed.search, headers, method: 'GET' }
+
+  proto.get(opts, (proxyRes) => {
+    if (proxyRes.statusCode && proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+      const loc = proxyRes.headers.location
+      return res.redirect('/api/proxy?url=' + encodeURIComponent(loc.startsWith('http') ? loc : new URL(loc, url).href))
+    }
+
+    const ct = proxyRes.headers['content-type'] || ''
+    const isPlaylist = PLAYLIST_CT.test(ct) || url.match(/\.m3u8/i)
+
+    if (isPlaylist) {
+      let data = ''
+      proxyRes.on('data', (chunk: string) => data += chunk)
+      proxyRes.on('end', () => {
+        const baseDir = url.substring(0, url.lastIndexOf('/') + 1)
+        const proxyBase = '/api/proxy?url='
+        const rewritten = rewriteM3u8(data, baseDir, proxyBase)
+        res.set('Content-Type', 'application/x-mpegurl')
+        res.set('Access-Control-Allow-Origin', '*')
+        res.send(rewritten)
+      })
+      return
+    }
+
+    res.status(proxyRes.statusCode || 200)
+    if (ct) res.set('Content-Type', ct.split(';')[0])
+    if (proxyRes.headers['content-length']) res.set('Content-Length', proxyRes.headers['content-length'] as string)
+    if (proxyRes.headers['content-range']) res.set('Content-Range', proxyRes.headers['content-range'] as string)
+    if (proxyRes.headers['accept-ranges']) res.set('Accept-Ranges', proxyRes.headers['accept-ranges'] as string)
+    res.set('Access-Control-Allow-Origin', '*')
+    proxyRes.pipe(res)
+  }).on('error', (err: Error) => {
+    if (!res.headersSent) res.status(502).send('Proxy error: ' + err.message)
+  })
 })
 
 export default router
