@@ -12,8 +12,7 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.21.0",
-    "youtubei.js": "^17.0.1"
+    "express": "^4.21.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
