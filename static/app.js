@@ -6,6 +6,8 @@ let state = {
   totalPages: 0,
   search: '',
   category: '',
+  hasSourcePath: false,
+  editingId: null,
 }
 
 const $ = (id) => document.getElementById(id)
@@ -15,6 +17,7 @@ const urlInput = $('urlInput')
 const statsContainer = $('statsContainer')
 const channelsContainer = $('channelsContainer')
 const errorBox = $('errorBox')
+const toolbar = $('toolbar')
 const filtersContainer = $('filtersContainer')
 const searchInput = $('searchInput')
 const categoryFilter = $('categoryFilter')
@@ -26,7 +29,27 @@ const toast = $('toast')
 const m3u8Bar = $('m3u8Bar')
 const m3u8Url = $('m3u8Url')
 const status = $('status')
+const saveBtn = $('saveBtn')
 
+const playerOverlay = $('playerOverlay')
+const playerVideo = $('playerVideo')
+const playerChannelName = $('playerChannelName')
+
+const editModal = $('editModal')
+const editModalTitle = $('editModalTitle')
+const editForm = $('editForm')
+const editId = $('editId')
+const editName = $('editName')
+const editUrl = $('editUrl')
+const editCategory = $('editCategory')
+const editLogo = $('editLogo')
+const editLanguage = $('editLanguage')
+const editQuality = $('editQuality')
+const editRadio = $('editRadio')
+const editSubmitBtn = $('editSubmitBtn')
+const deleteBtn = $('deleteBtn')
+
+let hlsInstance = null
 let toastTimeout
 
 function showToast(msg) {
@@ -65,8 +88,11 @@ async function loadList(input) {
     state.search = ''
     state.category = ''
     state.currentPage = 1
+    state.hasSourcePath = data.hasSourcePath || false
     searchInput.value = ''
     categoryFilter.value = ''
+
+    saveBtn.style.display = state.hasSourcePath ? '' : 'none'
 
     await loadCategories()
     updateStats()
@@ -104,6 +130,7 @@ function updateStats() {
   $('statRadio').textContent = state.stats.radio
   $('statCat').textContent = state.stats.categories
   statsContainer.style.display = 'grid'
+  toolbar.style.display = 'flex'
   filtersContainer.style.display = 'flex'
 
   const url = location.origin + '/api/playlist.m3u8'
@@ -122,6 +149,204 @@ function copyM3u8Url() {
     document.body.removeChild(ta)
     showToast('URL copiada')
   })
+}
+
+// --- Player ---
+
+function openPlayer(name, url) {
+  if (url.startsWith('/')) {
+    url = location.origin + url
+  }
+
+  playerChannelName.textContent = name
+  playerOverlay.classList.add('active')
+
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+
+  playerVideo.src = ''
+  playerVideo.load()
+
+  if (Hls && Hls.isSupported()) {
+    hlsInstance = new Hls()
+    hlsInstance.loadSource(url)
+    hlsInstance.attachMedia(playerVideo)
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      playerVideo.play().catch(() => {})
+    })
+    hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+      if (data.fatal) {
+        hlsInstance.destroy()
+        hlsInstance = null
+        playerVideo.src = url
+        playerVideo.play().catch(() => {})
+      }
+    })
+  } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
+    playerVideo.src = url
+    playerVideo.addEventListener('loadedmetadata', () => {
+      playerVideo.play().catch(() => {})
+    }, { once: true })
+  } else {
+    playerVideo.src = url
+    playerVideo.play().catch(() => {})
+  }
+}
+
+function closePlayer() {
+  playerOverlay.classList.remove('active')
+  playerVideo.pause()
+  playerVideo.src = ''
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+}
+
+// --- Edit Modal ---
+
+function openEditModal(channel) {
+  state.editingId = channel.id
+  editModalTitle.textContent = 'Editar Canal'
+  editSubmitBtn.textContent = 'Guardar'
+  deleteBtn.style.display = ''
+
+  editId.value = channel.id
+  editName.value = channel.name
+  editUrl.value = channel.url
+  editCategory.value = channel.groupTitle || ''
+  editLogo.value = channel.tvgLogo || ''
+  editLanguage.value = channel.tvgLanguage || ''
+  editQuality.value = channel.quality || ''
+  editRadio.checked = channel.radio || false
+
+  editModal.classList.add('active')
+}
+
+function openAddModal() {
+  state.editingId = null
+  editModalTitle.textContent = 'Añadir Canal'
+  editSubmitBtn.textContent = 'Añadir'
+  deleteBtn.style.display = 'none'
+
+  editId.value = ''
+  editName.value = ''
+  editUrl.value = ''
+  editCategory.value = ''
+  editLogo.value = ''
+  editLanguage.value = ''
+  editQuality.value = ''
+  editRadio.checked = false
+
+  editModal.classList.add('active')
+  setTimeout(() => editName.focus(), 100)
+}
+
+function closeEditModal() {
+  editModal.classList.remove('active')
+  state.editingId = null
+}
+
+async function saveEdit(event) {
+  event.preventDefault()
+
+  const body = {
+    name: editName.value.trim(),
+    url: editUrl.value.trim(),
+    groupTitle: editCategory.value.trim(),
+    tvgLogo: editLogo.value.trim(),
+    tvgLanguage: editLanguage.value.trim(),
+    quality: editQuality.value.trim(),
+    radio: editRadio.checked,
+  }
+
+  if (!body.name || !body.url) {
+    showError('Nombre y URL son requeridos')
+    return
+  }
+
+  try {
+    let res
+    if (state.editingId !== null) {
+      res = await fetch('/api/channels/' + state.editingId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } else {
+      res = await fetch('/api/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    }
+
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Error al guardar')
+
+    closeEditModal()
+    showToast(state.editingId !== null ? 'Canal actualizado' : 'Canal añadido')
+    await refreshAfterEdit()
+  } catch (err) {
+    showError(err.message)
+  }
+}
+
+async function deleteChannel() {
+  if (state.editingId === null) return
+  if (!confirm('¿Eliminar este canal?')) return
+
+  try {
+    const res = await fetch('/api/channels/' + state.editingId, {
+      method: 'DELETE',
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Error al eliminar')
+
+    closeEditModal()
+    showToast('Canal eliminado')
+    await refreshAfterEdit()
+  } catch (err) {
+    showError(err.message)
+  }
+}
+
+// --- Export / Save ---
+
+function exportPlaylist() {
+  const a = document.createElement('a')
+  a.href = '/api/playlist.m3u8'
+  a.download = 'playlist.m3u8'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  showToast('Descargando playlist.m3u8')
+}
+
+async function savePlaylist() {
+  try {
+    const res = await fetch('/api/playlist/save', { method: 'POST' })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error)
+    showToast('Lista guardada en el servidor')
+  } catch (err) {
+    showError(err.message)
+  }
+}
+
+// --- Data ---
+
+async function refreshAfterEdit() {
+  await loadCategories()
+  const statsRes = await fetch('/api/stats')
+  if (statsRes.ok) {
+    state.stats = await statsRes.json()
+    updateStats()
+  }
+  state.currentPage = 1
+  await fetchChannels()
 }
 
 async function fetchChannels() {
@@ -155,7 +380,9 @@ function renderChannels(items) {
 
   channelsContainer.innerHTML = items
     .map(
-      (ch) => `
+      (ch) => {
+        const chJson = escapeHtml(JSON.stringify(ch))
+        return `
     <div class="channel">
       <img src="${ch.tvgLogo || '/favicon.ico'}" alt="" loading="lazy" onerror="this.src='/favicon.ico'" />
       <div class="channel-info">
@@ -168,9 +395,13 @@ function renderChannels(items) {
         </div>
         <div class="channel-url" onclick="copyUrl(this)" title="Copiar URL">${escapeHtml(ch.url)}</div>
       </div>
-      <a class="play-btn" href="${escapeHtml(ch.url)}" target="_blank">▶ Abrir</a>
+      <div class="channel-actions">
+        <button class="play-btn" onclick="openPlayer(${escapeHtml(JSON.stringify(ch.name))}, ${escapeHtml(JSON.stringify(ch.url))})">▶</button>
+        <button class="edit-btn" onclick="openEditModal(${chJson})">✎</button>
+      </div>
     </div>
   `
+      }
     )
     .join('')
 }
@@ -243,6 +474,19 @@ nextBtn.addEventListener('click', () => {
     state.currentPage++
     fetchChannels()
   }
+})
+
+// Keyboard: Escape cierra modales
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (playerOverlay.classList.contains('active')) closePlayer()
+    else if (editModal.classList.contains('active')) closeEditModal()
+  }
+})
+
+// Clic fuera del modal de edición lo cierra
+editModal.addEventListener('click', (e) => {
+  if (e.target === editModal) closeEditModal()
 })
 
 // Auto-cargar si el servidor ya tiene datos

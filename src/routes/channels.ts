@@ -1,20 +1,71 @@
 import { Router, Request, Response } from 'express'
+import fs from 'fs'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
 import { loadFromUrl, loadFromPath } from '../services/parser'
 
 let data: M3u8ParseResult | null = null
+let sourcePath: string | null = null
+let sourceUrl: string | null = null
 
 export function setData(newData: M3u8ParseResult) {
   data = newData
+}
+
+export function setSourcePath(path: string | null) {
+  sourcePath = path
+}
+
+export function setSourceUrl(url: string | null) {
+  sourceUrl = url
 }
 
 export function getData(): M3u8ParseResult | null {
   return data
 }
 
+export function getSourcePath(): string | null {
+  return sourcePath
+}
+
 const router = Router()
 
-// POST /api/load - Cargar lista desde URL o archivo local
+function recalculate() {
+  if (!data) return
+  const categoriesSet = new Set<string>()
+  let radioCount = 0
+  for (const ch of data.channels) {
+    if (ch.groupTitle) categoriesSet.add(ch.groupTitle)
+    if (ch.radio) radioCount++
+  }
+  data.categories = Array.from(categoriesSet).sort()
+  data.stats = {
+    total: data.channels.length,
+    categories: data.categories.length,
+    radio: radioCount,
+    tv: data.channels.length - radioCount,
+  }
+}
+
+function generateM3u8(channels: Channel[], req: Request): string {
+  const baseUrl = `${req.protocol}://${req.get('host')}`
+  let output = '#EXTM3U\n'
+  for (const ch of channels) {
+    const attrs: string[] = []
+    if (ch.tvgId) attrs.push(`tvg-id="${ch.tvgId}"`)
+    if (ch.tvgName) attrs.push(`tvg-name="${ch.tvgName}"`)
+    if (ch.tvgLogo) attrs.push(`tvg-logo="${ch.tvgLogo}"`)
+    if (ch.groupTitle) attrs.push(`group-title="${ch.groupTitle}"`)
+    if (ch.tvgLanguage) attrs.push(`tvg-language="${ch.tvgLanguage}"`)
+    if (ch.tvgCountry) attrs.push(`tvg-country="${ch.tvgCountry}"`)
+    if (ch.radio) attrs.push(`radio="true"`)
+    const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
+    output += `#EXTINF:${ch.duration}${attrStr},${ch.name}\n`
+    const finalUrl = ch.url.startsWith('/') ? `${baseUrl}${ch.url}` : ch.url
+    output += `${finalUrl}\n`
+  }
+  return output
+}
+
 router.post('/load', async (req: Request, res: Response) => {
   try {
     const { url, path: filePath } = req.body as LoadRequest
@@ -28,17 +79,19 @@ router.post('/load', async (req: Request, res: Response) => {
     }
 
     data = url ? await loadFromUrl(url) : await loadFromPath(filePath!)
+    sourcePath = filePath || null
+    sourceUrl = url || null
 
     res.json({
       message: 'Lista cargada correctamente',
       stats: data.stats,
+      hasSourcePath: !!sourcePath,
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// GET /api/channels - Listar canales con filtros
 router.get('/channels', (req: Request, res: Response) => {
   if (!data) {
     return res.status(400).json({ error: 'No hay lista cargada. Usa POST /api/load primero' })
@@ -99,7 +152,6 @@ router.get('/channels', (req: Request, res: Response) => {
   })
 })
 
-// GET /api/channels/search?q= - Búsqueda rápida por nombre
 router.get('/channels/search', (req: Request, res: Response) => {
   if (!data) {
     return res.status(400).json({ error: 'No hay lista cargada. Usa POST /api/load primero' })
@@ -121,7 +173,6 @@ router.get('/channels/search', (req: Request, res: Response) => {
   res.json({ total: results.length, items: results.slice(0, 100) })
 })
 
-// GET /api/channels/:id - Detalle de canal
 router.get('/channels/:id', (req: Request, res: Response) => {
   if (!data) {
     return res.status(400).json({ error: 'No hay lista cargada. Usa POST /api/load primero' })
@@ -137,7 +188,89 @@ router.get('/channels/:id', (req: Request, res: Response) => {
   res.json(channel)
 })
 
-// GET /api/categories - Listar categorías
+router.post('/channels', (req: Request, res: Response) => {
+  if (!data) {
+    return res.status(400).json({ error: 'No hay lista cargada' })
+  }
+
+  const { name, url, groupTitle, tvgLogo, tvgLanguage, quality, radio, tvgId, tvgName, tvgCountry } = req.body
+  if (!name || !url) {
+    return res.status(400).json({ error: 'Nombre y URL son requeridos' })
+  }
+
+  const maxId = data.channels.reduce((max, ch) => Math.max(max, ch.id), -1)
+
+  const newChannel: Channel = {
+    id: maxId + 1,
+    name,
+    url,
+    duration: -1,
+    tvgId: tvgId || '',
+    tvgName: tvgName || name,
+    tvgLogo: tvgLogo || '',
+    tvgLanguage: tvgLanguage || '',
+    tvgCountry: tvgCountry || '',
+    groupTitle: groupTitle || '',
+    quality: quality || '',
+    radio: radio || false,
+  }
+
+  data.channels.push(newChannel)
+  recalculate()
+
+  res.status(201).json(newChannel)
+})
+
+router.put('/channels/:id', (req: Request, res: Response) => {
+  if (!data) {
+    return res.status(400).json({ error: 'No hay lista cargada' })
+  }
+
+  const id = parseInt(req.params.id, 10)
+  const idx = data.channels.findIndex(c => c.id === id)
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Canal no encontrado' })
+  }
+
+  const existing = data.channels[idx]
+  const { name, url, groupTitle, tvgLogo, tvgLanguage, quality, radio, tvgId, tvgName, tvgCountry } = req.body
+
+  data.channels[idx] = {
+    ...existing,
+    name: name !== undefined ? name : existing.name,
+    url: url !== undefined ? url : existing.url,
+    groupTitle: groupTitle !== undefined ? groupTitle : existing.groupTitle,
+    tvgLogo: tvgLogo !== undefined ? tvgLogo : existing.tvgLogo,
+    tvgLanguage: tvgLanguage !== undefined ? tvgLanguage : existing.tvgLanguage,
+    quality: quality !== undefined ? quality : existing.quality,
+    radio: radio !== undefined ? radio : existing.radio,
+    tvgId: tvgId !== undefined ? tvgId : existing.tvgId,
+    tvgName: tvgName !== undefined ? tvgName : existing.tvgName,
+    tvgCountry: tvgCountry !== undefined ? tvgCountry : existing.tvgCountry,
+  }
+
+  recalculate()
+
+  res.json(data.channels[idx])
+})
+
+router.delete('/channels/:id', (req: Request, res: Response) => {
+  if (!data) {
+    return res.status(400).json({ error: 'No hay lista cargada' })
+  }
+
+  const id = parseInt(req.params.id, 10)
+  const idx = data.channels.findIndex(c => c.id === id)
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Canal no encontrado' })
+  }
+
+  data.channels.splice(idx, 1)
+  recalculate()
+
+  res.json({ message: 'Canal eliminado' })
+})
+
 router.get('/categories', (_req: Request, res: Response) => {
   if (!data) {
     return res.status(400).json({ error: 'No hay lista cargada. Usa POST /api/load primero' })
@@ -146,7 +279,6 @@ router.get('/categories', (_req: Request, res: Response) => {
   res.json({ total: data.categories.length, items: data.categories })
 })
 
-// GET /api/stats - Estadísticas
 router.get('/stats', (_req: Request, res: Response) => {
   if (!data) {
     return res.status(400).json({ error: 'No hay lista cargada. Usa POST /api/load primero' })
@@ -155,32 +287,41 @@ router.get('/stats', (_req: Request, res: Response) => {
   res.json(data.stats)
 })
 
-// GET /api/playlist.m3u8 - Servir canales como lista M3U8 para reproductor
+router.post('/playlist/save', (req: Request, res: Response) => {
+  if (!data) {
+    return res.status(400).json({ error: 'No hay lista cargada' })
+  }
+
+  if (sourceUrl && !sourcePath) {
+    return res.status(400).json({
+      error: 'La lista fue cargada desde URL. No se puede guardar en el servidor. Usá Exportar para descargar.',
+      canExport: true,
+    })
+  }
+
+  const saveTo = sourcePath
+  if (!saveTo) {
+    return res.status(400).json({ error: 'No hay archivo original para sobrescribir' })
+  }
+
+  try {
+    const m3u8 = generateM3u8(data.channels, req)
+    fs.writeFileSync(saveTo, m3u8, 'utf-8')
+    res.json({ message: 'Lista guardada correctamente en ' + saveTo })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.get('/playlist.m3u8', (req: Request, res: Response) => {
   if (!data) {
     return res.status(400).type('text/plain').send('# No hay lista cargada')
   }
 
-  const baseUrl = `${req.protocol}://${req.get('host')}`
-
-  let output = '#EXTM3U\n'
-  for (const ch of data.channels) {
-    const attrs: string[] = []
-    if (ch.tvgId) attrs.push(`tvg-id="${ch.tvgId}"`)
-    if (ch.tvgName) attrs.push(`tvg-name="${ch.tvgName}"`)
-    if (ch.tvgLogo) attrs.push(`tvg-logo="${ch.tvgLogo}"`)
-    if (ch.groupTitle) attrs.push(`group-title="${ch.groupTitle}"`)
-    if (ch.tvgLanguage) attrs.push(`tvg-language="${ch.tvgLanguage}"`)
-    if (ch.tvgCountry) attrs.push(`tvg-country="${ch.tvgCountry}"`)
-    if (ch.radio) attrs.push(`radio="true"`)
-    const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
-    output += `#EXTINF:${ch.duration}${attrStr},${ch.name}\n`
-    const finalUrl = ch.url.startsWith('/') ? `${baseUrl}${ch.url}` : ch.url
-    output += `${finalUrl}\n`
-  }
+  const output = generateM3u8(data.channels, req)
 
   res.set('Content-Type', 'application/x-mpegurl')
-  res.set('Content-Disposition', 'inline; filename="playlist.m3u8"')
+  res.set('Content-Disposition', 'attachment; filename="playlist.m3u8"')
   res.send(output)
 })
 

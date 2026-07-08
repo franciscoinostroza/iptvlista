@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import fs from 'fs'
-import channelRoutes, { setData, getData } from './routes/channels'
+import channelRoutes, { setData, getData, setSourcePath } from './routes/channels'
 import { loadFromPath } from './services/parser'
 import type { Channel } from './types/channel'
 
@@ -66,6 +66,7 @@ async function autoLoadPlaylist() {
     result.stats.tv++
     result.stats.categories = result.categories.length
     setData(result)
+    setSourcePath(playlistPath)
     console.log(`Lista auto-cargada: ${result.stats.total} canales (incluye TN)`)
 
     setInterval(async () => {
