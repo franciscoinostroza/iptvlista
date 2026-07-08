@@ -34,6 +34,7 @@ const saveBtn = $('saveBtn')
 const playerOverlay = $('playerOverlay')
 const playerVideo = $('playerVideo')
 const playerChannelName = $('playerChannelName')
+const playerStatus = $('playerStatus')
 
 const editModal = $('editModal')
 const editModalTitle = $('editModalTitle')
@@ -160,6 +161,7 @@ function openPlayer(name, url) {
 
   playerChannelName.textContent = name
   playerOverlay.classList.add('active')
+  playerStatus.textContent = 'Iniciando stream...'
 
   if (hlsInstance) {
     hlsInstance.destroy()
@@ -168,30 +170,48 @@ function openPlayer(name, url) {
 
   playerVideo.src = ''
   playerVideo.load()
+  playerVideo.muted = false
 
-  if (Hls && Hls.isSupported()) {
+  function tryPlay() {
+    playerVideo.play().catch((e) => {
+      if (e.name === 'NotAllowedError') {
+        playerVideo.muted = true
+        playerVideo.play().catch(() => {})
+      }
+    })
+  }
+
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     hlsInstance = new Hls()
     hlsInstance.loadSource(url)
     hlsInstance.attachMedia(playerVideo)
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-      playerVideo.play().catch(() => {})
+      playerStatus.textContent = ''
+      tryPlay()
     })
     hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+      playerStatus.textContent = 'Error HLS (' + data.type + '), reintentando...'
       if (data.fatal) {
         hlsInstance.destroy()
         hlsInstance = null
         playerVideo.src = url
-        playerVideo.play().catch(() => {})
+        playerStatus.textContent = 'Cargando directamente...'
+        tryPlay()
       }
     })
   } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
     playerVideo.src = url
     playerVideo.addEventListener('loadedmetadata', () => {
-      playerVideo.play().catch(() => {})
+      playerStatus.textContent = ''
+      tryPlay()
+    }, { once: true })
+    playerVideo.addEventListener('error', () => {
+      playerStatus.textContent = 'Error al cargar el stream.'
     }, { once: true })
   } else {
     playerVideo.src = url
-    playerVideo.play().catch(() => {})
+    playerStatus.textContent = 'Cargando...'
+    tryPlay()
   }
 }
 
@@ -199,6 +219,7 @@ function closePlayer() {
   playerOverlay.classList.remove('active')
   playerVideo.pause()
   playerVideo.src = ''
+  playerStatus.textContent = ''
   if (hlsInstance) {
     hlsInstance.destroy()
     hlsInstance = null
