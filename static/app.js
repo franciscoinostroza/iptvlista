@@ -2,7 +2,6 @@
 ;(function() {
   var s = document.createElement('script')
   s.src = '/hls.js/hls.min.js'
-  s.async = true
   s.onerror = function() { console.warn('hls.js load failed') }
   document.head.appendChild(s)
 })()
@@ -180,7 +179,6 @@ function openInTab(url) {
 
 function fallbackPlay(name, url, proxied) {
   if (proxied) { openInTab(url); return }
-  closePlayer()
   playerVideo.src = url
   playerVideo.load()
   playerStatus.textContent = 'Cargando...'
@@ -195,7 +193,6 @@ function openPlayer(name, rawUrl) {
 
   let isProxied = false
   if (location.protocol === 'https:' && url.startsWith('http:')) {
-    const originalUrl = url
     url = '/api/proxy?url=' + encodeURIComponent(url)
     isProxied = true
   }
@@ -241,7 +238,7 @@ function openPlayer(name, rawUrl) {
       tryPlay()
     }, { once: true })
     playerVideo.addEventListener('error', () => {
-      fallbackPlay(name, rawUrl, isProxied)
+      playerStatus.textContent = 'Error al cargar el stream.'
     }, { once: true })
   } else {
     fallbackPlay(name, rawUrl, isProxied)
@@ -438,7 +435,7 @@ function renderChannels(items) {
         const chJson = escapeHtml(JSON.stringify(ch))
         return `
     <div class="channel">
-      <img src="${ch.tvgLogo || 'data:,'}" alt="" loading="lazy" onerror="this.remove()" />
+      <img src="${ch.tvgLogo || 'data:,'}" alt="" loading="lazy" onerror="this.style.display='none'" />
       <div class="channel-info">
         <div class="channel-name">${escapeHtml(ch.name)}</div>
         <div class="channel-meta">
