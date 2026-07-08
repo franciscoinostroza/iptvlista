@@ -1,3 +1,12 @@
+// Load hls.js dynamically (catches extension errors gracefully)
+;(function() {
+  var s = document.createElement('script')
+  s.src = '/hls.js/hls.min.js'
+  s.async = true
+  s.onerror = function() { console.warn('hls.js load failed') }
+  document.head.appendChild(s)
+})()
+
 let state = {
   channels: [],
   categories: [],
@@ -154,6 +163,30 @@ function copyM3u8Url() {
 
 // --- Player ---
 
+function tryPlay() {
+  playerVideo.play().catch((e) => {
+    if (e.name === 'NotAllowedError') {
+      playerVideo.muted = true
+      playerVideo.play().catch(() => {})
+    }
+  })
+}
+
+function openInTab(url) {
+  closePlayer()
+  window.open(url, '_blank')
+  showToast('Abriendo en nueva pestaña...')
+}
+
+function fallbackPlay(name, url, proxied) {
+  if (proxied) { openInTab(url); return }
+  closePlayer()
+  playerVideo.src = url
+  playerVideo.load()
+  playerStatus.textContent = 'Cargando...'
+  tryPlay()
+}
+
 function openPlayer(name, rawUrl) {
   let url = rawUrl
   if (url.startsWith('/')) {
@@ -180,37 +213,27 @@ function openPlayer(name, rawUrl) {
   playerVideo.load()
   playerVideo.muted = false
 
-  function tryPlay() {
-    playerVideo.play().catch((e) => {
-      if (e.name === 'NotAllowedError') {
-        playerVideo.muted = true
-        playerVideo.play().catch(() => {})
-      }
-    })
-  }
+  let hlsSupported = false
+  try { hlsSupported = typeof Hls !== 'undefined' && Hls.isSupported() } catch (_) {}
 
-  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    hlsInstance = new Hls()
-    hlsInstance.loadSource(url)
-    hlsInstance.attachMedia(playerVideo)
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-      playerStatus.textContent = ''
-      tryPlay()
-    })
-    hlsInstance.on(Hls.Events.ERROR, (_, data) => {
-      if (data.fatal) {
-        playerOverlay.classList.remove('active')
-        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null }
-        playerVideo.pause()
-        playerVideo.src = ''
-        if (isProxied) {
-          window.open(rawUrl, '_blank')
-          showToast('Proxy no disponible. Abriendo en nueva pestaña...')
-        } else {
-          showToast('Error al reproducir el stream.')
+  if (hlsSupported) {
+    try {
+      hlsInstance = new Hls()
+      hlsInstance.loadSource(url)
+      hlsInstance.attachMedia(playerVideo)
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        playerStatus.textContent = ''
+        tryPlay()
+      })
+      hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null }
+          fallbackPlay(name, rawUrl, isProxied)
         }
-      }
-    })
+      })
+    } catch (_) {
+      fallbackPlay(name, rawUrl, isProxied)
+    }
   } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
     playerVideo.src = url
     playerVideo.addEventListener('loadedmetadata', () => {
@@ -218,12 +241,10 @@ function openPlayer(name, rawUrl) {
       tryPlay()
     }, { once: true })
     playerVideo.addEventListener('error', () => {
-      playerStatus.textContent = 'Error al cargar el stream. Probá abrir en nueva pestaña.'
+      fallbackPlay(name, rawUrl, isProxied)
     }, { once: true })
   } else {
-    playerVideo.src = url
-    playerStatus.textContent = 'Cargando...'
-    tryPlay()
+    fallbackPlay(name, rawUrl, isProxied)
   }
 }
 
