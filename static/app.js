@@ -160,7 +160,9 @@ function openPlayer(name, url) {
   }
 
   if (location.protocol === 'https:' && url.startsWith('http:')) {
-    url = '/api/proxy?url=' + encodeURIComponent(url)
+    window.open(url, '_blank')
+    showToast('Abriendo stream en nueva pestaña')
+    return
   }
 
   playerChannelName.textContent = name
