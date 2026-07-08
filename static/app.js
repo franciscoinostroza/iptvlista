@@ -5,6 +5,11 @@
   document.head.appendChild(s)
 })()
 
+// Register Service Worker for HTTP stream proxy
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(function() {})
+}
+
 let state = {
   channels: [],
   categories: [],
@@ -195,7 +200,7 @@ function openPlayer(name, rawUrl) {
 
   var isProxied = false
   if (location.protocol === 'https:' && url.startsWith('http:')) {
-    url = '/api/proxy?url=' + encodeURIComponent(url)
+    url = '/api/sw-proxy/' + encodeURIComponent(url)
     isProxied = true
   }
 
