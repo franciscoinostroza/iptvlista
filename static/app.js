@@ -1,14 +1,4 @@
-;(function() {
-  var s = document.createElement('script')
-  s.src = '/hls.js/hls.min.js'
-  s.onerror = function() { console.warn('hls.js load failed') }
-  document.head.appendChild(s)
-})()
 
-// Register Service Worker for HTTP stream proxy
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(function() {})
-}
 
 let state = {
   channels: [],
@@ -43,11 +33,13 @@ const status = $('status')
 const saveBtn = $('saveBtn')
 const copyM3u8Btn = $('copyM3u8Btn')
 
-const playerOverlay = $('playerOverlay')
-const playerVideo = $('playerVideo')
-const playerChannelName = $('playerChannelName')
-const playerStatus = $('playerStatus')
-const closePlayerBtn = $('closePlayerBtn')
+const playModal = $('playModal')
+const playChannelName = $('playChannelName')
+const playChannelUrl = $('playChannelUrl')
+const closePlayModalBtn = $('closePlayModalBtn')
+const vlcBtn = $('vlcBtn')
+const copyStreamUrlBtn = $('copyStreamUrlBtn')
+const downloadM3uBtn = $('downloadM3uBtn')
 
 const editModal = $('editModal')
 const editModalTitle = $('editModalTitle')
@@ -67,7 +59,6 @@ const cancelEditBtn = $('cancelEditBtn')
 const addChannelBtn = $('addChannelBtn')
 const exportBtn = $('exportBtn')
 
-let hlsInstance = null
 let toastTimeout
 
 function showToast(msg) {
@@ -169,98 +160,61 @@ function copyM3u8Url() {
 
 // --- Player ---
 
-function tryPlay() {
-  playerVideo.play().catch(function(e) {
-    if (e.name === 'NotAllowedError') {
-      playerVideo.muted = true
-      playerVideo.play().catch(function() {})
-    }
+var currentPlayUrl = ''
+
+function openPlayModal(name, url) {
+  currentPlayUrl = url
+  playChannelName.textContent = name
+  playChannelUrl.textContent = url
+  playModal.classList.add('active')
+}
+
+function closePlayModal() {
+  playModal.classList.remove('active')
+  currentPlayUrl = ''
+}
+
+function openInVlc() {
+  var vlcLink = 'vlc://' + currentPlayUrl
+  var opened = false
+  try {
+    window.location.href = vlcLink
+    opened = true
+  } catch (_) {}
+  if (!opened) {
+    copyStreamUrl()
+  }
+  setTimeout(function() { closePlayModal() }, 100)
+}
+
+function copyStreamUrl() {
+  var url = currentPlayUrl
+  navigator.clipboard.writeText(url).then(function() {
+    showToast('URL copiada al portapapeles')
+  }).catch(function() {
+    var ta = document.createElement('textarea')
+    ta.value = url
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    showToast('URL copiada')
   })
 }
 
-function openInTab(url) {
-  closePlayer()
-  window.open(url, '_blank')
-  showToast('Abriendo en nueva pestaña...')
-}
-
-function fallbackPlay(name, url, proxied) {
-  if (proxied) { openInTab(url); return }
-  playerVideo.src = url
-  playerVideo.load()
-  playerStatus.textContent = 'Cargando...'
-  tryPlay()
-}
-
-function openPlayer(name, rawUrl) {
-  var url = rawUrl
-  if (url.startsWith('/')) {
-    url = location.origin + url
-  }
-
-  var isProxied = false
-  if (location.protocol === 'https:' && url.startsWith('http:')) {
-    url = '/api/sw-proxy/' + encodeURIComponent(url)
-    isProxied = true
-  }
-
-  playerChannelName.textContent = name
-  playerOverlay.classList.add('active')
-  playerStatus.textContent = 'Iniciando stream...'
-
-  if (hlsInstance) {
-    hlsInstance.destroy()
-    hlsInstance = null
-  }
-
-  playerVideo.src = ''
-  playerVideo.load()
-  playerVideo.muted = false
-
-  var hlsSupported = false
-  try { hlsSupported = typeof Hls !== 'undefined' && Hls.isSupported() } catch (_) {}
-
-  if (hlsSupported) {
-    try {
-      hlsInstance = new Hls()
-      hlsInstance.loadSource(url)
-      hlsInstance.attachMedia(playerVideo)
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-        playerStatus.textContent = ''
-        tryPlay()
-      })
-      hlsInstance.on(Hls.Events.ERROR, function(_, data) {
-        if (data.fatal) {
-          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null }
-          fallbackPlay(name, rawUrl, isProxied)
-        }
-      })
-    } catch (_) {
-      fallbackPlay(name, rawUrl, isProxied)
-    }
-  } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
-    playerVideo.src = url
-    playerVideo.addEventListener('loadedmetadata', function() {
-      playerStatus.textContent = ''
-      tryPlay()
-    }, { once: true })
-    playerVideo.addEventListener('error', function() {
-      playerStatus.textContent = 'Error al cargar el stream.'
-    }, { once: true })
-  } else {
-    fallbackPlay(name, rawUrl, isProxied)
-  }
-}
-
-function closePlayer() {
-  playerOverlay.classList.remove('active')
-  playerVideo.pause()
-  playerVideo.src = ''
-  playerStatus.textContent = ''
-  if (hlsInstance) {
-    hlsInstance.destroy()
-    hlsInstance = null
-  }
+function downloadSingleM3u() {
+  var name = playChannelName.textContent
+  var url = currentPlayUrl
+  var content = '#EXTM3U\n#EXTINF:-1,' + name + '\n' + url + '\n'
+  var blob = new Blob([content], { type: 'audio/x-mpegurl' })
+  var a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = name.replace(/[^a-zA-Z0-9]/g, '_') + '.m3u'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(a.href)
+  showToast('Archivo .m3u descargado')
 }
 
 // --- Edit Modal ---
@@ -490,7 +444,7 @@ channelsContainer.addEventListener('click', function(e) {
   if (action === 'play') {
     var name = target.getAttribute('data-name')
     var url = target.getAttribute('data-url')
-    openPlayer(name, url)
+    openPlayModal(name, url)
   } else if (action === 'edit') {
     try {
       var ch = JSON.parse(target.getAttribute('data-channel'))
@@ -531,7 +485,10 @@ urlInput.addEventListener('keydown', function(e) {
 })
 
 copyM3u8Btn.addEventListener('click', copyM3u8Url)
-closePlayerBtn.addEventListener('click', closePlayer)
+closePlayModalBtn.addEventListener('click', closePlayModal)
+vlcBtn.addEventListener('click', openInVlc)
+copyStreamUrlBtn.addEventListener('click', copyStreamUrl)
+downloadM3uBtn.addEventListener('click', downloadSingleM3u)
 closeEditModalBtn.addEventListener('click', closeEditModal)
 cancelEditBtn.addEventListener('click', closeEditModal)
 addChannelBtn.addEventListener('click', openAddModal)
@@ -569,13 +526,16 @@ nextBtn.addEventListener('click', function() {
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    if (playerOverlay.classList.contains('active')) closePlayer()
+    if (playModal.classList.contains('active')) closePlayModal()
     else if (editModal.classList.contains('active')) closeEditModal()
   }
 })
 
 editModal.addEventListener('click', function(e) {
   if (e.target === editModal) closeEditModal()
+})
+playModal.addEventListener('click', function(e) {
+  if (e.target === playModal) closePlayModal()
 })
 
 // --- Init ---
