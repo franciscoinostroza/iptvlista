@@ -50,7 +50,6 @@ const editRadio = $('editRadio')
 const editSubmitBtn = $('editSubmitBtn')
 const deleteBtn = $('deleteBtn')
 
-let hlsInstance = null
 let toastTimeout
 
 function showToast(msg) {
@@ -187,38 +186,9 @@ function openPlayer(name, url) {
     })
   }
 
-  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-    hlsInstance = new Hls()
-    hlsInstance.loadSource(url)
-    hlsInstance.attachMedia(playerVideo)
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-      playerStatus.textContent = ''
-      tryPlay()
-    })
-    hlsInstance.on(Hls.Events.ERROR, (_, data) => {
-      playerStatus.textContent = 'Error HLS (' + data.type + '), reintentando...'
-      if (data.fatal) {
-        hlsInstance.destroy()
-        hlsInstance = null
-        playerVideo.src = url
-        playerStatus.textContent = 'Cargando directamente...'
-        tryPlay()
-      }
-    })
-  } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
-    playerVideo.src = url
-    playerVideo.addEventListener('loadedmetadata', () => {
-      playerStatus.textContent = ''
-      tryPlay()
-    }, { once: true })
-    playerVideo.addEventListener('error', () => {
-      playerStatus.textContent = 'Error al cargar el stream.'
-    }, { once: true })
-  } else {
-    playerVideo.src = url
-    playerStatus.textContent = 'Cargando...'
-    tryPlay()
-  }
+  playerVideo.src = url
+  playerStatus.textContent = 'Cargando...'
+  tryPlay()
 }
 
 function closePlayer() {
@@ -226,10 +196,6 @@ function closePlayer() {
   playerVideo.pause()
   playerVideo.src = ''
   playerStatus.textContent = ''
-  if (hlsInstance) {
-    hlsInstance.destroy()
-    hlsInstance = null
-  }
 }
 
 // --- Edit Modal ---
@@ -411,7 +377,7 @@ function renderChannels(items) {
         const chJson = escapeHtml(JSON.stringify(ch))
         return `
     <div class="channel">
-      <img src="${ch.tvgLogo || '/favicon.ico'}" alt="" loading="lazy" onerror="this.src='/favicon.ico'" />
+      <img src="${ch.tvgLogo || 'data:,'}" alt="" loading="lazy" onerror="this.remove()" />
       <div class="channel-info">
         <div class="channel-name">${escapeHtml(ch.name)}</div>
         <div class="channel-meta">
