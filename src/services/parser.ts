@@ -125,3 +125,81 @@ export async function loadFromPath(filePath: string): Promise<M3u8ParseResult> {
   const content = fs.readFileSync(resolved, 'utf-8')
   return parseM3u8Content(content)
 }
+
+function resolveUrl(raw: string, baseDir: string): string {
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+  if (raw.startsWith('//')) return 'https:' + raw
+  if (raw.startsWith('/')) return new URL(raw, baseDir).origin + raw
+  return new URL(raw, baseDir).href
+}
+
+export function fetchBinary(url: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const proto = url.startsWith('https') ? https : http
+    const req = proto.get(url, { timeout: 20000 }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        return fetchBinary(res.headers.location).then(resolve).catch(reject)
+      }
+      if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume()
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+      }
+      const chunks: Buffer[] = []
+      res.on('data', (chunk: Buffer) => chunks.push(chunk))
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+    })
+    req.on('error', reject)
+    req.on('timeout', () => { req.destroy(); reject(new Error('fetchBinary timeout')) })
+  })
+}
+
+export async function getSegmentUrls(playlistUrl: string): Promise<{ segments: string[]; targetDuration: number }> {
+  let url = playlistUrl
+  const maxDepth = 5
+
+  for (let depth = 0; depth < maxDepth; depth++) {
+    const content = await fetchUrl(url)
+    const baseDir = url.substring(0, url.lastIndexOf('/') + 1)
+    const lines = content.split(/\r?\n/)
+
+    if (content.includes('#EXT-X-STREAM-INF')) {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('#EXT-X-STREAM-INF') && i + 1 < lines.length) {
+          const next = lines[i + 1].trim()
+          if (next && !next.startsWith('#')) {
+            url = resolveUrl(next, baseDir)
+            break
+          }
+        }
+      }
+      continue
+    }
+
+    const segments: string[] = []
+    let targetDuration = 10
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line.startsWith('#EXT-X-TARGETDURATION:')) {
+        targetDuration = parseInt(line.split(':')[1]) || 10
+      }
+      if (line.startsWith('#EXT-X-MAP:URI=')) {
+        const m = line.match(/URI="([^"]*)"/)
+        if (m) segments.push(resolveUrl(m[1], baseDir))
+      }
+      if (line.startsWith('#EXTINF:')) {
+        for (let j = i + 1; j < lines.length; j++) {
+          const next = lines[j].trim()
+          if (!next || next.startsWith('#')) continue
+          segments.push(resolveUrl(next, baseDir))
+          break
+        }
+      }
+    }
+
+    return { segments, targetDuration }
+  }
+
+  return { segments: [], targetDuration: 10 }
+}

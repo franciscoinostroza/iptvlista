@@ -1,8 +1,4 @@
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(function() {})
-}
-
 let state = {
   channels: [],
   categories: [],
@@ -60,7 +56,6 @@ const cancelEditBtn = $('cancelEditBtn')
 const addChannelBtn = $('addChannelBtn')
 const exportBtn = $('exportBtn')
 
-let hlsInstance = null
 let toastTimeout
 
 function showToast(msg) {
@@ -162,77 +157,18 @@ function copyM3u8Url() {
 
 // --- Player ---
 
-function openPlayer(name, rawUrl) {
-  var url = rawUrl
-  if (url.startsWith('/')) {
-    url = location.origin + url
-  }
-
-  if (location.protocol === 'https:' && url.startsWith('http:')) {
-    url = '/api/sw-proxy/' + encodeURIComponent(url)
-  }
-
+function openPlayer(name, channel) {
   playerChannelName.textContent = name
-  playerOverlay.classList.add('active')
+  playerVideo.src = '/api/stream/' + channel.id
   playerStatus.textContent = 'Iniciando stream...'
+  playerOverlay.classList.add('active')
 
-  if (hlsInstance) {
-    hlsInstance.destroy()
-    hlsInstance = null
-  }
-
-  playerVideo.src = ''
-  playerVideo.load()
-  playerVideo.muted = false
-
-  function tryPlay() {
-    playerVideo.play().catch(function(e) {
-      if (e.name === 'NotAllowedError') {
-        playerVideo.muted = true
-        playerVideo.play().catch(function() {})
-      }
-    })
-  }
-
-  var hlsSupported = false
-  try { hlsSupported = typeof Hls !== 'undefined' && Hls.isSupported() } catch (_) {}
-
-  if (hlsSupported) {
-    try {
-      hlsInstance = new Hls()
-      hlsInstance.loadSource(url)
-      hlsInstance.attachMedia(playerVideo)
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-        playerStatus.textContent = ''
-        tryPlay()
-      })
-      hlsInstance.on(Hls.Events.ERROR, function(_, data) {
-        if (data.fatal) {
-          if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null }
-          playerVideo.src = url
-          playerStatus.textContent = 'Cargando directamente...'
-          tryPlay()
-        }
-      })
-    } catch (_) {
-      playerVideo.src = url
-      playerStatus.textContent = 'Cargando...'
-      tryPlay()
+  playerVideo.play().catch(function(e) {
+    if (e.name === 'NotAllowedError') {
+      playerVideo.muted = true
+      playerVideo.play().catch(function() {})
     }
-  } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
-    playerVideo.src = url
-    playerVideo.addEventListener('loadedmetadata', function() {
-      playerStatus.textContent = ''
-      tryPlay()
-    }, { once: true })
-    playerVideo.addEventListener('error', function() {
-      playerStatus.textContent = 'Error al cargar el stream.'
-    }, { once: true })
-  } else {
-    playerVideo.src = url
-    playerStatus.textContent = 'Cargando...'
-    tryPlay()
-  }
+  })
 }
 
 function closePlayer() {
@@ -240,10 +176,6 @@ function closePlayer() {
   playerVideo.pause()
   playerVideo.src = ''
   playerStatus.textContent = ''
-  if (hlsInstance) {
-    hlsInstance.destroy()
-    hlsInstance = null
-  }
 }
 
 // --- Edit Modal ---
@@ -427,7 +359,8 @@ function renderChannels(items) {
 
   channelsContainer.innerHTML = items
     .map(function(ch) {
-      return '<div class="channel" data-id="' + ch.id + '">\n' +
+      var itemJson = escapeHtml(JSON.stringify(ch))
+      return '<div class="channel" data-channel=\'' + itemJson + '\'>\n' +
         '  <img src="' + (ch.tvgLogo || 'data:,') + '" alt="" loading="lazy" onerror="this.style.display=\'none\'" />\n' +
         '  <div class="channel-info">\n' +
         '    <div class="channel-name">' + escapeHtml(ch.name) + '</div>\n' +
@@ -440,8 +373,8 @@ function renderChannels(items) {
         '    <div class="channel-url" title="Copiar URL">' + escapeHtml(ch.url) + '</div>\n' +
         '  </div>\n' +
         '  <div class="channel-actions">\n' +
-        '    <button class="play-btn" data-action="play" data-name="' + escapeHtml(ch.name) + '" data-url="' + escapeHtml(ch.url) + '">▶</button>\n' +
-        '    <button class="edit-btn" data-action="edit" data-channel=\'' + escapeHtml(JSON.stringify(ch)) + '\'>✎</button>\n' +
+        '    <button class="play-btn" data-action="play">▶</button>\n' +
+        '    <button class="edit-btn" data-action="edit">✎</button>\n' +
         '  </div>\n' +
         '</div>'
     })
@@ -468,17 +401,16 @@ channelsContainer.addEventListener('click', function(e) {
   var channelEl = target.closest('.channel')
   if (!channelEl) return
 
+  try {
+    var ch = JSON.parse(channelEl.getAttribute('data-channel'))
+  } catch (_) { return }
+
   var action = target.getAttribute('data-action')
 
   if (action === 'play') {
-    var name = target.getAttribute('data-name')
-    var url = target.getAttribute('data-url')
-    openPlayer(name, url)
+    openPlayer(ch.name, ch)
   } else if (action === 'edit') {
-    try {
-      var ch = JSON.parse(target.getAttribute('data-channel'))
-      openEditModal(ch)
-    } catch (_) {}
+    openEditModal(ch)
   }
 })
 
