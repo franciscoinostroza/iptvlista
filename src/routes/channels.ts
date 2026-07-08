@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import fs from 'fs'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
-import { loadFromUrl, loadFromPath, getSegmentUrls, fetchBinary } from '../services/parser'
+import { loadFromUrl, loadFromPath } from '../services/parser'
 
 let data: M3u8ParseResult | null = null
 let sourcePath: string | null = null
@@ -323,50 +323,6 @@ router.get('/playlist.m3u8', (req: Request, res: Response) => {
   res.set('Content-Type', 'application/x-mpegurl')
   res.set('Content-Disposition', 'attachment; filename="playlist.m3u8"')
   res.send(output)
-})
-
-router.get('/stream/:id', async (req: Request, res: Response) => {
-  if (!data) {
-    return res.status(400).type('text/plain').send('No data')
-  }
-
-  const id = parseInt(req.params.id, 10)
-  const channel = data.channels.find(c => c.id === id)
-  if (!channel) {
-    return res.status(404).type('text/plain').send('Channel not found')
-  }
-
-  res.set('Content-Type', 'video/mp2t')
-  res.set('Transfer-Encoding', 'chunked')
-  res.set('Connection', 'close')
-  res.set('Access-Control-Allow-Origin', '*')
-  res.set('Cache-Control', 'no-cache')
-
-  const seen = new Set<string>()
-
-  try {
-    while (!res.destroyed) {
-      const { segments, targetDuration } = await getSegmentUrls(channel.url)
-
-      for (const segUrl of segments) {
-        if (res.destroyed || seen.has(segUrl)) continue
-        seen.add(segUrl)
-
-        const buf = await fetchBinary(segUrl)
-        if (res.destroyed) return
-        res.write(buf)
-      }
-
-      if (segments.length === 0) break
-      await new Promise(r => setTimeout(r, Math.max(targetDuration * 500, 2000)))
-    }
-  } catch (err: any) {
-    if (!res.headersSent) {
-      res.status(502).type('text/plain').send('Stream error: ' + err.message)
-    }
-  } finally {
-    if (!res.destroyed) res.end()
-  }
 })
 
 export default router
