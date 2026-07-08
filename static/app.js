@@ -154,13 +154,17 @@ function copyM3u8Url() {
 
 // --- Player ---
 
-function openPlayer(name, url) {
+function openPlayer(name, rawUrl) {
+  let url = rawUrl
   if (url.startsWith('/')) {
     url = location.origin + url
   }
 
+  let isProxied = false
   if (location.protocol === 'https:' && url.startsWith('http:')) {
+    const originalUrl = url
     url = '/api/proxy?url=' + encodeURIComponent(url)
+    isProxied = true
   }
 
   playerChannelName.textContent = name
@@ -195,11 +199,16 @@ function openPlayer(name, url) {
     })
     hlsInstance.on(Hls.Events.ERROR, (_, data) => {
       if (data.fatal) {
-        hlsInstance.destroy()
-        hlsInstance = null
-        playerVideo.src = url
-        playerStatus.textContent = 'Cargando directamente...'
-        tryPlay()
+        playerOverlay.classList.remove('active')
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null }
+        playerVideo.pause()
+        playerVideo.src = ''
+        if (isProxied) {
+          window.open(rawUrl, '_blank')
+          showToast('Proxy no disponible. Abriendo en nueva pestaña...')
+        } else {
+          showToast('Error al reproducir el stream.')
+        }
       }
     })
   } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
