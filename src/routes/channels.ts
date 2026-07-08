@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express'
 import fs from 'fs'
+import http from 'http'
+import https from 'https'
 import { Channel, M3u8ParseResult, LoadRequest, ChannelQuery } from '../types/channel'
 import { loadFromUrl, loadFromPath } from '../services/parser'
 
@@ -323,6 +325,68 @@ router.get('/playlist.m3u8', (req: Request, res: Response) => {
   res.set('Content-Type', 'application/x-mpegurl')
   res.set('Content-Disposition', 'attachment; filename="playlist.m3u8"')
   res.send(output)
+})
+
+router.get('/proxy', (req: Request, res: Response) => {
+  const url = req.query.url as string
+  if (!url) {
+    return res.status(400).json({ error: 'url parameter required' })
+  }
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return res.status(400).json({ error: 'invalid url' })
+  }
+
+  const parsed = new URL(url)
+  const proto = parsed.protocol === 'https:' ? https : http
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': '*/*',
+  }
+  if (req.headers.range) headers['Range'] = req.headers.range as string
+
+  const opts = {
+    hostname: parsed.hostname,
+    port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+    path: parsed.pathname + parsed.search,
+    headers,
+    method: 'GET',
+    timeout: 10000,
+  }
+
+  const proxyReq = proto.request(opts, (proxyRes) => {
+    if (proxyRes.statusCode && proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+      const loc = proxyRes.headers.location
+      return res.redirect(302, '/api/proxy?url=' + encodeURIComponent(
+        loc.startsWith('http') ? loc : `${parsed.protocol}//${parsed.host}${loc.startsWith('/') ? '' : '/'}${loc}`
+      ))
+    }
+
+    const ct = proxyRes.headers['content-type'] || ''
+
+    res.status(proxyRes.statusCode || 200)
+    if (ct) res.set('Content-Type', ct.split(';')[0])
+    if (proxyRes.headers['content-length']) res.set('Content-Length', proxyRes.headers['content-length'] as string)
+    if (proxyRes.headers['content-range']) res.set('Content-Range', proxyRes.headers['content-range'] as string)
+    if (proxyRes.headers['accept-ranges']) res.set('Accept-Ranges', proxyRes.headers['accept-ranges'] as string)
+    res.set('Access-Control-Allow-Origin', '*')
+    proxyRes.pipe(res)
+  })
+
+  proxyReq.on('error', (err: Error) => {
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'proxy_error', details: err.message })
+    }
+  })
+
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy()
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'proxy_timeout' })
+    }
+  })
+
+  proxyReq.end()
 })
 
 export default router

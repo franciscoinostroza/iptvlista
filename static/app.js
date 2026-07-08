@@ -50,6 +50,7 @@ const editRadio = $('editRadio')
 const editSubmitBtn = $('editSubmitBtn')
 const deleteBtn = $('deleteBtn')
 
+let hlsInstance = null
 let toastTimeout
 
 function showToast(msg) {
@@ -159,9 +160,7 @@ function openPlayer(name, url) {
   }
 
   if (location.protocol === 'https:' && url.startsWith('http:')) {
-    window.open(url, '_blank')
-    showToast('Abriendo stream en nueva pestaña')
-    return
+    url = '/api/proxy?url=' + encodeURIComponent(url)
   }
 
   playerChannelName.textContent = name
@@ -186,9 +185,37 @@ function openPlayer(name, url) {
     })
   }
 
-  playerVideo.src = url
-  playerStatus.textContent = 'Cargando...'
-  tryPlay()
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+    hlsInstance = new Hls()
+    hlsInstance.loadSource(url)
+    hlsInstance.attachMedia(playerVideo)
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      playerStatus.textContent = ''
+      tryPlay()
+    })
+    hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+      if (data.fatal) {
+        hlsInstance.destroy()
+        hlsInstance = null
+        playerVideo.src = url
+        playerStatus.textContent = 'Cargando directamente...'
+        tryPlay()
+      }
+    })
+  } else if (playerVideo.canPlayType('application/vnd.apple.mpegurl')) {
+    playerVideo.src = url
+    playerVideo.addEventListener('loadedmetadata', () => {
+      playerStatus.textContent = ''
+      tryPlay()
+    }, { once: true })
+    playerVideo.addEventListener('error', () => {
+      playerStatus.textContent = 'Error al cargar el stream. Probá abrir en nueva pestaña.'
+    }, { once: true })
+  } else {
+    playerVideo.src = url
+    playerStatus.textContent = 'Cargando...'
+    tryPlay()
+  }
 }
 
 function closePlayer() {
@@ -196,6 +223,10 @@ function closePlayer() {
   playerVideo.pause()
   playerVideo.src = ''
   playerStatus.textContent = ''
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
 }
 
 // --- Edit Modal ---
